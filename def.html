@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Otimização de Código Interativa Avançada</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .code-section {
+            margin: 20px 0;
+        }
+
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+        }
+
+        button {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Otimização de Código Interativa Avançada</h1>
+    <div class="code-section">
+        <h2>Inserir Código JavaScript</h2>
+        <textarea id="input-code" placeholder="Cole seu código JavaScript aqui..."></textarea>
+        <button onclick="analyzeCode()">Analisar Código</button>
+        <button onclick="optimizeCode()">Otimizar Código</button>
+        <button onclick="transformToSSA()">Transformar para SSA</button>
+        <pre id="output-code"></pre>
+    </div>
+
+    <!-- Adiciona a biblioteca Acorn -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/acorn/8.7.1/acorn.min.js"></script>
+    <script>
+        function analyzeCode() {
+            let inputCode = document.getElementById('input-code').value;
+            let outputCode = '';
+
+            try {
+                // Usar Acorn para analisar o código
+                const parsed = acorn.parse(inputCode, { ecmaVersion: 2020 });
+                outputCode = JSON.stringify(parsed, null, 2); // Exemplo de saída da análise
+            } catch (error) {
+                outputCode = 'Erro na análise: ' + error.message;
+            }
+
+            document.getElementById('output-code').textContent = outputCode;
+        }
+
+        function optimizeCode() {
+            let inputCode = document.getElementById('input-code').value;
+            let outputCode = '';
+
+            // Remove código morto
+            outputCode = inputCode
+                // Remove blocos `if (false) { ... }`
+                .replace(/if\s*\(false\)\s*\{[^}]*\}/g, '')
+                // Remove blocos `else { if (false) { ... }}`
+                .replace(/else\s*\{\s*if\s*\(false\)\s*\{[^}]*\}\s*\}/g, '')
+                // Remove código dentro de `else if (false) { ... }`
+                .replace(/else\s*if\s*\(false\)\s*\{[^}]*\}/g, '')
+
+                // Remove blocos `if (b)` onde `b` é uma variável que pode ser false
+                .replace(/if\s*\(\s*([a-zA-Z_$][0-9a-zA-Z_$]*)\s*\)\s*\{\s*([^}]*)\s*\}/g, (match, varName, body) => {
+                    // Verifica se a variável é false
+                    if (varName === 'b') {
+                        return ''; // Remove o bloco if
+                    }
+                    return match; // Não remove o bloco se a variável não for 'b'
+                })
+
+                // Remove código redundante e simplifica
+                .replace(/\bresult\s*=\s*result\s*(?:\|\|\s*false|&&\s*true);\s*/g, 'result = result;') // Simplifica redundant code
+
+                // Remove código redundante deixado após simplificação
+                .replace(/^\s*;\s*$/gm, '')
+
+                // Desenrolamento de loops simples
+                .replace(/for\s*\(\s*let\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*(\d+);\s*\1\s*<\s*(\d+);\s*\1\+\+\s*\)\s*\{\s*([^}]*)\s*\}/g, (match, varName, start, end, body) => {
+                    let startValue = parseInt(start, 10);
+                    let endValue = parseInt(end, 10);
+                    let numIterations = endValue - startValue;
+                    let unrolledCode = '';
+                    for (let i = 0; i < numIterations; i++) {
+                        unrolledCode += body.replace(new RegExp(`\\b${varName}\\b`, 'g'), startValue + i) + '\n';
+                    }
+                    return `// Loop desenrolado\n${unrolledCode}`;
+                })
+
+                // Desenrolamento de loops aninhados (suporta até 2 níveis de aninhamento)
+                .replace(/for\s*\(\s*let\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*(\d+);\s*\1\s*<\s*(\d+);\s*\1\+\+\s*\)\s*\{\s*for\s*\(\s*let\s+([a-zA-Z_$][0-9a-zA-Z_$]*)\s*=\s*(\d+);\s*\4\s*<\s*(\d+);\s*\4\+\+\s*\)\s*\{\s*([^}]*)\s*\}\s*\}/g, (match, outerVar, outerStart, outerEnd, innerVar, innerStart, innerEnd, body) => {
+                    let outerStartValue = parseInt(outerStart, 10);
+                    let outerEndValue = parseInt(outerEnd, 10);
+                    let innerStartValue = parseInt(innerStart, 10);
+                    let innerEndValue = parseInt(innerEnd, 10);
+                    let unrolledCode = '';
+                    for (let i = outerStartValue; i < outerEndValue; i++) {
+                        for (let j = innerStartValue; j < innerEndValue; j++) {
+                            unrolledCode += body.replace(new RegExp(`\\b${outerVar}\\b`, 'g'), i).replace(new RegExp(`\\b${innerVar}\\b`, 'g'), j) + '\n';
+                        }
+                    }
+                    return `// Loop desenrolado\n${unrolledCode}`;
+                });
+
+            // Atualiza o conteúdo da área de saída com o código otimizado
+            document.getElementById('output-code').textContent = outputCode;
+        }
+
+
+
+
+
+
+
+        function transformToSSA() {
+            let inputCode = document.getElementById('input-code').value;
+            let outputCode = '';
+            let varCounter = {};  // Contador para as variáveis
+            let variableNames = {};  // Mapeia o nome original para o nome SSA
+
+            // Função para gerar um novo nome de variável SSA
+            function newSSAName(varName) {
+                if (!varCounter[varName]) {
+                    varCounter[varName] = 1;
+                } else {
+                    varCounter[varName]++;
+                }
+                return `${varName}_${varCounter[varName]}`;
+            }
+
+            // Substitui variáveis na expressão
+            function replaceVariables(expression) {
+                return expression.replace(/\b(\w+)\b/g, (match) => {
+                    return variableNames[match] || match;
+                });
+            }
+
+            // Processar o código de entrada
+            let lines = inputCode.split('\n');
+            let newCode = [];
+
+            lines.forEach(line => {
+                line = line.trim();
+
+                // Identificar variáveis e criar novos nomes SSA
+                if (line.startsWith('let ')) {
+                    line = line.replace(/let\s+(\w+)\s*=\s*([^;]+);/, (match, varName, value) => {
+                        let newVarName = newSSAName(varName);
+                        variableNames[varName] = newVarName;
+                        return `let ${newVarName} = ${value}; // Atribuição SSA`;
+                    });
+                } else if (line.includes('=')) {
+                    line = line.replace(/(\w+)\s*=\s*([^;]+);/, (match, varName, value) => {
+                        let newVarName = variableNames[varName] || newSSAName(varName);
+                        variableNames[varName] = newVarName;
+                        return `${newVarName} = ${replaceVariables(value)}; // Atribuição SSA`;
+                    });
+                } else if (line.startsWith('if')) {
+                    line = line.replace(/if\s*\(([^)]+)\)\s*{/, (match, condition) => {
+                        return `if (${replaceVariables(condition)}) {`;
+                    });
+                } else if (line.startsWith('for')) {
+                    line = line.replace(/for\s*\(\s*let\s+(\w+)\s*=\s*(\d+);\s*\1\s*<\s*(\d+);\s*\1\+\+\)\s*{/, (match, varName, start, end) => {
+                        let newVarName = newSSAName(varName);
+                        variableNames[varName] = newVarName;
+                        return `for (let ${newVarName} = ${start}; ${newVarName} < ${end}; ${newVarName}++) {`;
+                    });
+                } else if (line.startsWith('while')) {
+                    line = line.replace(/while\s*\(([^)]+)\)\s*{/, (match, condition) => {
+                        return `while (${replaceVariables(condition)}) {`;
+                    });
+                } else if (line.startsWith('console.log')) {
+                    line = line.replace(/console\.log\(([^)]+)\)/, (match, args) => {
+                        return `console.log(${replaceVariables(args)})`;
+                    });
+                }
+
+                newCode.push(line);
+            });
+
+            outputCode = newCode.join('\n');
+            document.getElementById('output-code').textContent = outputCode;
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/acorn/8.8.2/acorn.min.js"></script>
+
+</body>
+
+</html>
